@@ -27,3 +27,9 @@ Open an issue. Name the file and the rule, give the ground, and cite paragraph n
 ## What this does not settle
 
 This process governs this repository's interpretation. It does not speak for the Church, and it cannot make a deployed system accountable to the people it affects. That takes the deployer, who should publish which version of these files they run.
+
+## Disclosure template for deployers
+
+One line, where users of the system can see it:
+
+> This system is steered by nehemiah (https://github.com/piezox/nehemiah) at commit `<sha>`, with the following local changes: `<none | list>`.
