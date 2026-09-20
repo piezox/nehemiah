@@ -7,7 +7,7 @@ Open items carried over from the design conversation (2026-09-20). Delete this f
 - [x] LICENSE: confirm the copyright holder name.
 - [x] `cases/companionship.md`: the rule "when the person is in real distress or at risk, prioritize getting them to human help" has no paragraph behind it. Mark it (ext.).
 - [x] `chmod +x scripts/build-full.sh`
-- [ ] `git init -b main`, first commit, create the GitHub repo with description and topics (`agents-md`, `agent-skills`, `ai-ethics`, `magnifica-humanitas`).
+- [x] `git init -b main`, first commit, create the GitHub repo with description and topics (`agents-md`, `agent-skills`, `ai-ethics`, `magnifica-humanitas`).
 - [x] GitHub code search, logged in, to check nobody has done this already: `"Magnifica Humanitas" path:AGENTS.md OR path:SKILL.md OR path:.cursor`
 
 ## Decisions to revisit
