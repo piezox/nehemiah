@@ -9,7 +9,9 @@ Negatives matter as much as positives. An agent that moralizes over a refactor h
 
 ## Running
 
-No harness yet. Until there is one: run each prompt in the target tool with steering on and off, save transcripts under `evals/runs/<date>-<tool>-<model>/`, and grade against `expect_load` and `expect_behavior` by hand.
+`python3 evals/run.py [id ...]` runs every scenario (or the ids given) through Claude Code headless, steering on and off, four at a time. Each run gets a fresh temporary directory: on runs get the core inline as `AGENTS.md` plus a copy of `cases/`, off runs get only the fixtures. MCP servers and user-level settings are off so both sides see the same tools. Transcripts land in `evals/runs/<datetime>-claude-code-<model>/` (gitignored) and a trigger-recall table prints at the end. Behavior is graded by hand from the `.md` files. A full pass costs about ten dollars.
+
+Scenarios that refer to attached material list their files under `fixtures:`; the files live in `evals/fixtures/`.
 
 ## Writing scenarios
 
