@@ -12,3 +12,4 @@ The content is agent steering derived from *Magnifica Humanitas* (Leo XIV, 2026)
 - Every contested rule gets a scenario in `evals/scenarios.yaml`. Scenario prompts must not reuse the vocabulary of the rules they test.
 - Do not add the encyclical text to the repo. It is © Dicastery for Communication — Libreria Editrice Vaticana and not ours to license. Paraphrase and cite by paragraph number.
 - Front matter stays tool-neutral: `name` and `description` only, plus `tier` in the core files.
+- Every eval number you report carries the provenance line `evals/run.py` and `evals/grade.py` print (commit, scenario set, checks, host, model, graders). Do not post or compare numbers without it, and do not run evals from a dirty tree. See `evals/README.md`, "Reporting a result".

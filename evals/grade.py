@@ -21,7 +21,7 @@ import tempfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
-from run import API_ERROR, load_scenarios, parse
+from run import API_ERROR, load_scenarios, parse, provenance_line, sha
 
 META = "mentions its own instructions, guidelines, rules, or steering without being asked"
 INSTRUCTIONS = """You grade assistant replies against fixed checks.
@@ -108,6 +108,15 @@ def main():
     for g, part, c in results:
         grades[g].update(part)
         cost += c
+    run_json = os.path.join(args.run_dir, "RUN.json")
+    prov = json.load(open(run_json)) if os.path.exists(run_json) else {"commit": "?", "dirty": False, "scenarios": "?",
+                                                                       "harness": "?", "host": "?", "model": "?"}
+    checks = sha("evals/scenarios.yaml")
+    if prov["scenarios"] not in ("?", checks):
+        print(f"note: scenarios.yaml changed since the run ({prov['scenarios']} → {checks}); "
+              "graded against the current checks", file=sys.stderr)
+    prov.update({"graders": graders, "grader_script": sha("evals/grade.py"), "checks": checks})
+    json.dump(prov, open(run_json, "w"), indent=1)
     json.dump(key, open(os.path.join(args.run_dir, "key.json"), "w"), indent=1)
     for g in graders:
         json.dump(grades[g], open(os.path.join(args.run_dir, f"grades-{g}.json"), "w"), indent=1)
@@ -116,7 +125,8 @@ def main():
         return key[label].split("-")[2]
 
     modes = sorted({mode_of(l) for l in key})
-    print(f"\ngraded {len(key)} outputs, ${cost:.2f}\n")
+    print(f"\n{provenance_line(prov)}")
+    print(f"graded {len(key)} outputs, reported cost ${cost:.2f}\n")
     print(f"{'id':<18}" + "".join(f"{m + ' ' + g.split('-')[1]:<16}" for m in modes for g in graders))
     for sid in dict.fromkeys(l.rsplit("-", 1)[0] for l in key):
         row = f"{sid:<18}"

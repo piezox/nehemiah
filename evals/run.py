@@ -19,6 +19,7 @@ a recall table on stdout. Behavior is graded by hand from the .md files.
 """
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -38,6 +39,27 @@ MODEL = os.environ.get("EVAL_MODEL", "claude-fable-5-1")
 REMOTE = ("Read {base}core/core.md now. It is the always-on core of this repository's steering, "
           "and it applies to you while you work here. Its router table says when to open each file in `cases/`; "
           "those files are at {base}cases/.\n")
+
+
+def sha(path):
+    return hashlib.sha256(open(os.path.join(ROOT, path), "rb").read()).hexdigest()[:12]
+
+
+def provenance():
+    """What a result depends on. Written to RUN.json and printed with every table."""
+    git = lambda *a: subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    tracked = ["core", "cases", "evals/scenarios.yaml", "evals/run.py", "evals/grade.py", "evals/fixtures"]
+    host = subprocess.run(["claude", "--version"], capture_output=True, text=True).stdout.strip().split()[0] or "?"
+    return {"commit": git("rev-parse", "--short", "HEAD"),
+            "dirty": bool(git("status", "--porcelain", "--", *tracked)),
+            "scenarios": sha("evals/scenarios.yaml"), "harness": sha("evals/run.py"),
+            "host": f"claude-code {host}", "model": MODEL}
+
+
+def provenance_line(p):
+    return (f"nehemiah {p['commit']}{'+dirty' if p['dirty'] else ''} · scenarios {p['scenarios']} · harness {p['harness']}"
+            f" · {p['host']} · model {p['model']}"
+            + (f" · graders {', '.join(p['graders'])} (grade.py {p['grader_script']}, checks {p['checks']})" if "graders" in p else ""))
 
 
 def paragraphs(text, bracketed=False):
@@ -220,6 +242,9 @@ def main():
         scen = [s for s in scen if s["id"] in args.ids]
     out = args.out or os.path.join(ROOT, "evals/runs", datetime.datetime.now().strftime("%Y-%m-%d-%H%M") + "-claude-code")
     os.makedirs(out, exist_ok=True)
+    prov = provenance()
+    prov.update({"modes": modes, "runs": args.runs, "drop": args.drop, "date": datetime.date.today().isoformat()})
+    json.dump(prov, open(os.path.join(out, "RUN.json"), "w"), indent=1)
     runs = range(1, args.runs + 1) if args.runs > 1 else [0]
     drop = [n for n in args.drop.split(",") if n]
     assert set(drop) <= set(CASES), drop
@@ -232,7 +257,10 @@ def main():
     final_out = out if args.out else f"{out}-{model}"
     os.rename(out, final_out)
     total = sum(r[4] for r in results)
-    print(f"\nmodel {model}, ${total:.2f}, output {os.path.relpath(final_out, ROOT)}")
+    prov["model"] = model
+    json.dump(prov, open(os.path.join(final_out, "RUN.json"), "w"), indent=1)
+    print(f"\n{provenance_line(prov)}")
+    print(f"reported cost ${total:.2f}, output {os.path.relpath(final_out, ROOT)}")
     if errors:
         print(f"{errors} runs failed with an API error and are not counted; rerun with --out to complete them")
     print()
