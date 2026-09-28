@@ -7,8 +7,11 @@ Usage: python3 evals/run.py [--modes on,off] [--runs N] [--out DIR] [scenario-id
 Each run gets a fresh temporary directory whose path does not name this repo.
   on:      AGENTS.md holds core/core.md inline, cases/ is copied next to it.
   pointer: AGENTS.md only points to core/core.md, which is copied with cases/ (#13).
+  remote:  AGENTS.md points to raw GitHub URLs pinned to origin/main; nothing is copied, and
+           WebFetch is allowed for raw.githubusercontent.com only (#13).
   off:     the directory holds only the fixtures.
-MCP servers and user-level settings are disabled so both sides see the same tools.
+MCP servers, user-level settings, and the Artifact tools (they publish, and stalled runs
+into timeouts in run 3) are disabled so both sides see the same tools.
 
 Output: evals/runs/<datetime>-claude-code-<model>/<id>-<mode>[-rN].{jsonl,md} plus
 a recall table on stdout. Behavior is graded by hand from the .md files.
@@ -30,17 +33,21 @@ WORKERS = 4
 MAX_TURNS = "10"
 TIMEOUT = 900
 MODEL = os.environ.get("EVAL_MODEL", "claude-fable-5-1")
+REMOTE = ("Read {base}core/core.md now. It is the always-on core of this repository's steering, "
+          "and it applies to you while you work here. Its router table says when to open each file in `cases/`; "
+          "those files are at {base}cases/.\n")
 POINTER = ("Read `core/core.md` now. It is the always-on core of this repository's steering, "
            "and it applies to you while you work here. Its router table says when to open each file in `cases/`.\n")
 
 
 def load_scenarios():
-    scen, cur, in_prompt = [], None, False
+    scen, cur, in_prompt, in_checks = [], None, False, False
     for line in open(os.path.join(ROOT, "evals/scenarios.yaml")):
         if line.startswith("- id:"):
-            cur = {"id": line.split(":", 1)[1].strip(), "prompt": "", "fixtures": [], "expect_load": []}
+            cur = {"id": line.split(":", 1)[1].strip(), "prompt": "", "fixtures": [], "expect_load": [],
+                   "expect_behavior": []}
             scen.append(cur)
-            in_prompt = False
+            in_prompt = in_checks = False
             continue
         if cur is None:
             continue
@@ -51,6 +58,13 @@ def load_scenarios():
             cur["prompt"] += line.strip() + " "
             continue
         in_prompt = False
+        if re.match(r"\s+expect_behavior:", line):
+            in_checks = True
+            continue
+        if in_checks and re.match(r"\s+- ", line):
+            cur["expect_behavior"].append(line.strip()[2:])
+            continue
+        in_checks = False
         m = re.match(r"\s+(fixtures|expect_load): \[(.*)\]", line)
         if m:
             cur[m.group(1)] = [x.strip() for x in m.group(2).split(",") if x.strip()]
@@ -70,7 +84,11 @@ def make_dir(mode, fixtures):
             f.write(POINTER)
         os.makedirs(os.path.join(d, "core"))
         shutil.copy(os.path.join(ROOT, "core/core.md"), os.path.join(d, "core"))
-    if mode != "off":
+    if mode == "remote":
+        sha = subprocess.run(["git", "rev-parse", "origin/main"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+        with open(os.path.join(d, "AGENTS.md"), "w") as f:
+            f.write(REMOTE.format(base=f"https://raw.githubusercontent.com/piezox/nehemiah/{sha}/"))
+    if mode in ("on", "pointer"):
         shutil.copytree(os.path.join(ROOT, "cases"), os.path.join(d, "cases"))
     return d
 
@@ -111,7 +129,9 @@ def run(job):
         p = subprocess.run(
             ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
              "--max-turns", MAX_TURNS, "--model", MODEL, "--setting-sources", "project",
-             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'],
+             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+             "--disallowedTools", "Artifact,ArtifactComments,ArtifactData"]
+            + (["--allowedTools", "WebFetch(domain:raw.githubusercontent.com)"] if mode == "remote" else []),
             cwd=d, env=env, capture_output=True, text=True, timeout=TIMEOUT)
         stdout, err = p.stdout, f"exit {p.returncode}\n{p.stderr[-2000:]}" if p.returncode else ""
     except subprocess.TimeoutExpired as e:
@@ -164,9 +184,10 @@ def main():
         print(row)
     n = len(scen) * len(runs)
     print("\nrecall " + ", ".join(f"{m} {hits[m]}/{n}" for m in steered))
-    if "pointer" in modes:
-        core = sum("core" in l for _, mode, l, _, _ in results if mode == "pointer")
-        print(f"pointer runs that read core/core.md: {core}/{n}")
+    for m in ("pointer", "remote"):
+        if m in modes:
+            core = sum("core" in l for _, mode, l, _, _ in results if mode == m)
+            print(f"{m} runs that read core/core.md: {core}/{n}")
 
 
 if __name__ == "__main__":
