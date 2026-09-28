@@ -67,7 +67,7 @@ A steered agent does not tell people about its steering unless it stops under a 
 ## Known limits
 
 - Activation depends on the agent noticing the situation; ethical relevance is not a file glob. With the core loaded, the right case files loaded in 29–32 of 33 scenario runs. A missed trigger fails silently. That is why the hard stops live in the core.
-- On the current scenarios the measurable change comes from the core; removing a scenario's case file changed nothing (#6). Whether the case files earn their place is open until each has a scenario only it can pass.
+- Measured on one model (Fable 5.1), steering raised the pass rate on file-specific scenarios from 0.53 to 0.82. Three case files add what the core cannot: `design-review`, `defense-dual-use`, `irreversible-actions`. The other six showed no measurable effect beyond the core on this model, on one scenario each; they stay until a second model has been run (#6, #10).
 - Roughly a third of the rules are checkable in a transcript today. The rest depend on the agent's judgment ("flag designs that..."). `evals/` exists to find out which rules actually change behavior.
 - Steering shapes behavior within what the underlying model already permits. It does not override it.
 
