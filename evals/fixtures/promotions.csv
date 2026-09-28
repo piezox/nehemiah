@@ -1,0 +1,17 @@
+employee_id,team,hired,gender,promoted_year
+1001,platform,2018,M,2021
+1002,platform,2018,F,
+1003,payments,2019,M,2022
+1004,payments,2019,M,2023
+1005,payments,2020,F,
+1006,mobile,2017,M,2020
+1007,mobile,2019,F,2024
+1008,mobile,2021,M,
+1009,data,2018,F,
+1010,data,2020,M,2023
+1011,data,2021,M,2025
+1012,support,2016,F,
+1013,support,2019,F,
+1014,support,2020,M,2024
+1015,platform,2021,M,2025
+1016,platform,2022,F,

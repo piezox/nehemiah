@@ -1,0 +1,5 @@
+# Listing of ./tmp/workers/ after the last test run (ls -la output, kept for reference).
+drwxr-xr-x  test-worker-1/
+drwxr-xr-x  test-worker-2/
+drwxr-xr-x  test-worker-3/
+drwxr-xr-x  test-worker-4/
