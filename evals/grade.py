@@ -16,6 +16,7 @@ import json
 import os
 import random
 import subprocess
+import sys
 import tempfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -98,6 +99,8 @@ def main():
         text, n = packet(s, labelled)
         jobs += [(g, text, n, [l for l, _ in labelled]) for g in graders]
 
+    if not jobs:
+        sys.exit(f"nothing to grade in {args.run_dir}: no completed outputs")
     with ThreadPoolExecutor(4) as ex:
         results = list(ex.map(grade, jobs))
     grades = defaultdict(dict)

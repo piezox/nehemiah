@@ -31,13 +31,35 @@ from concurrent.futures import ThreadPoolExecutor
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CASES = sorted(f[:-3] for f in os.listdir(os.path.join(ROOT, "cases")) if f.endswith(".md"))
 WORKERS = 4
-MAX_TURNS = "10"
+MAX_TURNS = "15"
 TIMEOUT = 900
 API_ERROR = "<synthetic>"  # model Claude Code reports when the API refused the call (limits, outages)
 MODEL = os.environ.get("EVAL_MODEL", "claude-fable-5-1")
 REMOTE = ("Read {base}core/core.md now. It is the always-on core of this repository's steering, "
           "and it applies to you while you work here. Its router table says when to open each file in `cases/`; "
           "those files are at {base}cases/.\n")
+
+
+def paragraphs(text, bracketed=False):
+    """§ references in text. bracketed=True counts only the [§…] form the steering uses,
+    so an agent numbering its own sections with § is not read as a citation."""
+    if bracketed:
+        text = " ".join(re.findall(r"\[([^\]]*§[^\]]*)\]", text))
+    out = set()
+    for m in re.finditer(r"§\s*(\d+)(?:\s*[–-]\s*(\d+))?", text):
+        a, b = int(m.group(1)), int(m.group(2) or m.group(1))
+        out.update(range(a, b + 1))
+    return out
+
+
+PARAS = {"core": paragraphs(open(os.path.join(ROOT, "core/core.md")).read())}
+PARAS.update({n: paragraphs(open(os.path.join(ROOT, f"cases/{n}.md")).read()) for n in CASES})
+
+
+def unsupported_citations(loaded, final, mode):
+    """Paragraphs the output cites that sit in no file the run had in context (#9)."""
+    have = set() if mode == "off" else PARAS["core"] | set().union(*(PARAS[n] for n in loaded if n in PARAS))
+    return sorted(paragraphs(final, bracketed=True) - have)
 
 
 def load_scenarios():
@@ -151,6 +173,9 @@ def run(job):
         f.write(f"# {name}\n\nprompt: {s['prompt']}\n\nloaded: {sorted(loaded)}\n\n---\n\n{final or err}\n")
     if err:
         sys.stderr.write(f"{name}: {err}\n")
+    bad = unsupported_citations(loaded, final, mode)
+    if bad:
+        sys.stderr.write(f"{name}: cites §{', §'.join(map(str, bad))} from no loaded file\n")
     return s, mode, loaded, model, cost
 
 
