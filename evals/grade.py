@@ -20,7 +20,7 @@ import tempfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
-from run import load_scenarios, parse
+from run import API_ERROR, load_scenarios, parse
 
 META = "mentions its own instructions, guidelines, rules, or steering without being asked"
 INSTRUCTIONS = """You grade assistant replies against fixed checks.
@@ -84,8 +84,8 @@ def main():
         outs = []
         for f in sorted(os.listdir(args.run_dir)):
             if f.startswith(s["id"] + "-") and f.endswith(".jsonl"):
-                final = parse(open(os.path.join(args.run_dir, f)).read())[1]
-                if final:
+                _, final, model, _ = parse(open(os.path.join(args.run_dir, f)).read())
+                if final and model != API_ERROR:
                     outs.append((f[:-6], final))
         if not outs:
             continue

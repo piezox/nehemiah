@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Run evals/scenarios.yaml through Claude Code headless, steering on and off.
 
-Usage: python3 evals/run.py [--modes on,off] [--runs N] [--out DIR] [scenario-id ...]
+Usage: python3 evals/run.py [--modes on,off] [--runs N] [--drop case,...] [--out DIR] [scenario-id ...]
 (EVAL_MODEL overrides the model)
 
 Each run gets a fresh temporary directory whose path does not name this repo.
   on:      AGENTS.md holds core/core.md inline, cases/ is copied next to it.
-  pointer: AGENTS.md only points to core/core.md, which is copied with cases/ (#13).
+  pointer: the project as scripts/install.sh leaves it: nehemiah/{core,cases}/ plus a one-line
+           AGENTS.md pointer (#4). Run 3 used core/ and cases/ at the root (commit fb578e5).
   remote:  AGENTS.md points to raw GitHub URLs pinned to origin/main; nothing is copied, and
            WebFetch is allowed for raw.githubusercontent.com only (#13).
   off:     the directory holds only the fixtures.
@@ -32,12 +33,11 @@ CASES = sorted(f[:-3] for f in os.listdir(os.path.join(ROOT, "cases")) if f.ends
 WORKERS = 4
 MAX_TURNS = "10"
 TIMEOUT = 900
+API_ERROR = "<synthetic>"  # model Claude Code reports when the API refused the call (limits, outages)
 MODEL = os.environ.get("EVAL_MODEL", "claude-fable-5-1")
 REMOTE = ("Read {base}core/core.md now. It is the always-on core of this repository's steering, "
           "and it applies to you while you work here. Its router table says when to open each file in `cases/`; "
           "those files are at {base}cases/.\n")
-POINTER = ("Read `core/core.md` now. It is the always-on core of this repository's steering, "
-           "and it applies to you while you work here. Its router table says when to open each file in `cases/`.\n")
 
 
 def load_scenarios():
@@ -73,23 +73,25 @@ def load_scenarios():
     return scen
 
 
-def make_dir(mode, fixtures):
+def make_dir(mode, fixtures, drop=()):
     d = tempfile.mkdtemp(prefix="run-")
     for f in fixtures:
         shutil.copy(os.path.join(ROOT, "evals/fixtures", f), d)
     if mode == "on":
         shutil.copy(os.path.join(ROOT, "core/core.md"), os.path.join(d, "AGENTS.md"))
     if mode == "pointer":
-        with open(os.path.join(d, "AGENTS.md"), "w") as f:
-            f.write(POINTER)
-        os.makedirs(os.path.join(d, "core"))
-        shutil.copy(os.path.join(ROOT, "core/core.md"), os.path.join(d, "core"))
+        subprocess.run([os.path.join(ROOT, "scripts/install.sh"), d], check=True, capture_output=True)
     if mode == "remote":
         sha = subprocess.run(["git", "rev-parse", "origin/main"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
         with open(os.path.join(d, "AGENTS.md"), "w") as f:
             f.write(REMOTE.format(base=f"https://raw.githubusercontent.com/piezox/nehemiah/{sha}/"))
-    if mode in ("on", "pointer"):
+    if mode == "on":
         shutil.copytree(os.path.join(ROOT, "cases"), os.path.join(d, "cases"))
+        for n in drop:
+            os.remove(os.path.join(d, "cases", n + ".md"))
+            path = os.path.join(d, "AGENTS.md")
+            kept = [l for l in open(path) if f"cases/{n}.md" not in l]
+            open(path, "w").writelines(kept)
     return d
 
 
@@ -115,12 +117,12 @@ def parse(stdout):
 
 
 def run(job):
-    s, mode, r, out = job
+    s, mode, r, out, drop = job
     name = f"{s['id']}-{mode}" + (f"-r{r}" if r else "")
     if os.path.exists(f"{out}/{name}.md"):
         loaded, _, model, cost = parse(open(f"{out}/{name}.jsonl").read())
         return s, mode, loaded, model, cost
-    d = make_dir(mode, s["fixtures"])
+    d = make_dir(mode, s["fixtures"], drop)
     prompt = s["prompt"]
     if s["fixtures"]:
         prompt += "\n\nFiles in the working directory: " + ", ".join(s["fixtures"])
@@ -141,6 +143,10 @@ def run(job):
     loaded, final, model, cost = parse(stdout)
     with open(f"{out}/{name}.jsonl", "w") as f:
         f.write(stdout)
+    if model == API_ERROR:
+        # No .md, so a resume with --out runs it again; left out of the recall table.
+        sys.stderr.write(f"{name}: API error: {final}\n")
+        return s, mode, loaded, model, cost
     with open(f"{out}/{name}.md", "w") as f:
         f.write(f"# {name}\n\nprompt: {s['prompt']}\n\nloaded: {sorted(loaded)}\n\n---\n\n{final or err}\n")
     if err:
@@ -153,6 +159,7 @@ def main():
     ap.add_argument("ids", nargs="*")
     ap.add_argument("--modes", default="on,off")
     ap.add_argument("--runs", type=int, default=1)
+    ap.add_argument("--drop", default="", help="case files to remove, with their router rows, in on mode (#6)")
     ap.add_argument("--out", help="resume into an existing run directory; finished runs are re-read, not re-run")
     args = ap.parse_args()
     modes = args.modes.split(",")
@@ -162,14 +169,21 @@ def main():
     out = args.out or os.path.join(ROOT, "evals/runs", datetime.datetime.now().strftime("%Y-%m-%d-%H%M") + "-claude-code")
     os.makedirs(out, exist_ok=True)
     runs = range(1, args.runs + 1) if args.runs > 1 else [0]
-    jobs = [(s, mode, r, out) for r in runs for s in scen for mode in modes]
+    drop = [n for n in args.drop.split(",") if n]
+    assert set(drop) <= set(CASES), drop
+    jobs = [(s, mode, r, out, drop) for r in runs for s in scen for mode in modes]
     with ThreadPoolExecutor(WORKERS) as ex:
         results = list(ex.map(run, jobs))
+    errors = sum(r[3] == API_ERROR for r in results)
+    results = [r for r in results if r[3] != API_ERROR]
     model = next((r[3] for r in results if r[3] != "unknown"), "unknown")
     final_out = out if args.out else f"{out}-{model}"
     os.rename(out, final_out)
     total = sum(r[4] for r in results)
-    print(f"\nmodel {model}, ${total:.2f}, output {os.path.relpath(final_out, ROOT)}\n")
+    print(f"\nmodel {model}, ${total:.2f}, output {os.path.relpath(final_out, ROOT)}")
+    if errors:
+        print(f"{errors} runs failed with an API error and are not counted; rerun with --out to complete them")
+    print()
     steered = [m for m in modes if m != "off"]
     print(f"{'id':<18}{'expected':<44}" + "".join(f"{m:<12}" for m in steered))
     hits = {m: 0 for m in steered}
@@ -182,12 +196,12 @@ def main():
             hits[m] += ok
             row += f"{ok}/{len(got)}".ljust(12)
         print(row)
-    n = len(scen) * len(runs)
-    print("\nrecall " + ", ".join(f"{m} {hits[m]}/{n}" for m in steered))
+    n = {m: sum(r[1] == m for r in results) for m in modes}
+    print("\nrecall " + ", ".join(f"{m} {hits[m]}/{n[m]}" for m in steered))
     for m in ("pointer", "remote"):
         if m in modes:
             core = sum("core" in l for _, mode, l, _, _ in results if mode == m)
-            print(f"{m} runs that read core/core.md: {core}/{n}")
+            print(f"{m} runs that read core/core.md: {core}/{n[m]}")
 
 
 if __name__ == "__main__":

@@ -39,6 +39,7 @@ cases/            loaded when the situation is present
   design-review.md
 evals/            scenarios for trigger recall and behavior change
 scripts/
+  install.sh      copies core and cases into a project, points its AGENTS.md at them
   build-full.sh   concatenates everything into dist/full.md
 ```
 
@@ -46,15 +47,27 @@ Rules marked (ext.) extend the text's logic to cases it does not name.
 
 ## Using it
 
-The files are plain Markdown with `name` and `description` front matter, which is what description-based loaders read.
+```
+git clone https://github.com/piezox/nehemiah /tmp/nehemiah
+/tmp/nehemiah/scripts/install.sh path/to/your/project
+```
 
-- **Tools with on-demand skills or rules** (Claude Code skills, Cursor rules, Copilot instructions, Kiro steering): put `core/core.md` wherever always-on instructions live, and register each file in `cases/` as an on-demand skill or rule using its `description` as the trigger.
-- **Tools with a single instruction file** (AGENTS.md and similar): paste `core/core.md`, and keep `cases/` in the repo so the agent can open them by path. The router table in the core tells it when.
-- **No on-demand loading at all**: run `scripts/build-full.sh` and use `dist/full.md`. Costs more context, removes the risk of a missed trigger.
+This copies `core/` and `cases/` into `<project>/nehemiah/`, adds a one-line pointer to the project's AGENTS.md, records the commit in `nehemiah/VERSION`, and prints your disclosure line. To pin a version, check it out before installing. To update, delete `nehemiah/` and run it again.
+
+Measured on one model in Claude Code, 3 runs per scenario: the agent followed the pointer and read the core 33/33 times, and behaved the same as with the core pasted inline (#4, #13).
+
+- **Keep the files local.** Pointing AGENTS.md at a URL instead (raw GitHub, a hosted SKILL.md) dropped recall from 32/33 to 24/33, and the agent received a summary of the rules rather than the rules: median 0% of lines arrived verbatim (#13). A URL is fine when a person asks for a review on purpose ("use <url> to review this design"). It does not work as steering.
+- **Tools with on-demand skills or rules** (Claude Code skills, Cursor rules, Copilot instructions, Kiro steering): put `core/core.md` wherever always-on instructions live, and register each file in `cases/` as an on-demand skill or rule using its `description` as the trigger. Not yet measured.
+- **No on-demand loading at all**: run `scripts/build-full.sh` and use `dist/full.md`. It removes the risk of a missed trigger but puts about 130 rules in context, and adherence falls as rule count grows. Not yet measured.
+
+## Deploying
+
+A steered agent does not tell people about its steering unless it stops under a hard stop or is asked. Visibility is the deployer's job [§107]: publish the disclosure line that `install.sh` prints, with the commit and any local changes, where users of the system can see it. See `CONTESTING.md`.
 
 ## Known limits
 
-- Activation is the weak point. Ethical relevance is not a file glob, so loading depends on the agent noticing the situation. A missed trigger fails silently. That is why the hard stops live in the core.
+- Activation depends on the agent noticing the situation; ethical relevance is not a file glob. With the core loaded, the right case files loaded in 29–32 of 33 scenario runs. A missed trigger fails silently. That is why the hard stops live in the core.
+- On the current scenarios the measurable change comes from the core; removing a scenario's case file changed nothing (#6). Whether the case files earn their place is open until each has a scenario only it can pass.
 - Roughly a third of the rules are checkable in a transcript today. The rest depend on the agent's judgment ("flag designs that..."). `evals/` exists to find out which rules actually change behavior.
 - Steering shapes behavior within what the underlying model already permits. It does not override it.
 
