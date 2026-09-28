@@ -66,18 +66,19 @@ def load_scenarios():
     scen, cur, in_prompt, in_checks = [], None, False, False
     for line in open(os.path.join(ROOT, "evals/scenarios.yaml")):
         if line.startswith("- id:"):
-            cur = {"id": line.split(":", 1)[1].strip(), "prompt": "", "fixtures": [], "expect_load": [],
-                   "expect_behavior": []}
+            cur = {"id": line.split(":", 1)[1].strip(), "prompt": "", "followup": "", "fixtures": [],
+                   "expect_load": [], "expect_behavior": []}
             scen.append(cur)
             in_prompt = in_checks = False
             continue
         if cur is None:
             continue
-        if re.match(r"\s+prompt: >", line):
-            in_prompt = True
+        m = re.match(r"\s+(prompt|followup): >", line)
+        if m:
+            in_prompt = m.group(1)
             continue
         if in_prompt and not re.match(r"\s+\w+:", line):
-            cur["prompt"] += line.strip() + " "
+            cur[in_prompt] += line.strip() + " "
             continue
         in_prompt = False
         if re.match(r"\s+expect_behavior:", line):
@@ -92,6 +93,7 @@ def load_scenarios():
             cur[m.group(1)] = [x.strip() for x in m.group(2).split(",") if x.strip()]
     for s in scen:
         s["prompt"] = s["prompt"].strip()
+        s["followup"] = s["followup"].strip()
     return scen
 
 
@@ -118,12 +120,17 @@ def make_dir(mode, fixtures, drop=()):
 
 
 def parse(stdout):
-    loaded, final, model, cost = set(), "", "unknown", 0.0
+    """Loaded files, final text, model, cost of one run. A run with a follow-up turn (#8)
+    holds both turns; the text returned is turn 1, the follow-up, and turn 2 in order."""
+    loaded, final, model, cost, turns = set(), "", "unknown", 0.0, []
     for line in stdout.splitlines():
         try:
             m = json.loads(line)
         except ValueError:
             continue
+        if m.get("type") == "eval_followup":
+            turns += [final, f"User follow-up: {m['prompt']}"]
+            final = ""
         if m.get("type") == "assistant":
             model = m["message"].get("model", model)
             for c in m["message"].get("content", []):
@@ -134,7 +141,9 @@ def parse(stdout):
                         loaded.add("core")
         if m.get("type") == "result":
             final = m.get("result", "")
-            cost = m.get("total_cost_usd", 0.0)
+            cost += m.get("total_cost_usd", 0.0)
+    if turns:
+        final = "\n\n---\n\n".join(turns + [final])
     return loaded, final, model, cost
 
 
@@ -149,18 +158,34 @@ def run(job):
     if s["fixtures"]:
         prompt += "\n\nFiles in the working directory: " + ", ".join(s["fixtures"])
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-    try:
-        p = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
-             "--max-turns", MAX_TURNS, "--model", MODEL, "--setting-sources", "project",
-             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-             "--disallowedTools", "Artifact,ArtifactComments,ArtifactData"]
-            + (["--allowedTools", "WebFetch(domain:raw.githubusercontent.com)"] if mode == "remote" else []),
-            cwd=d, env=env, capture_output=True, text=True, timeout=TIMEOUT)
-        stdout, err = p.stdout, f"exit {p.returncode}\n{p.stderr[-2000:]}" if p.returncode else ""
-    except subprocess.TimeoutExpired as e:
-        stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else e.stdout or ""
-        err = f"timeout after {TIMEOUT} s"
+    flags = ["--output-format", "stream-json", "--verbose",
+           "--max-turns", MAX_TURNS, "--model", MODEL, "--setting-sources", "project",
+           "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+           "--disallowedTools", "Artifact,ArtifactComments,ArtifactData"]
+    if mode == "remote":
+        flags += ["--allowedTools", "WebFetch(domain:raw.githubusercontent.com)"]
+
+    def invoke(text, extra=()):
+        try:
+            p = subprocess.run(["claude", "-p", text, *extra, *flags], cwd=d, env=env,
+                               capture_output=True, text=True, timeout=TIMEOUT)
+            return p.stdout, f"exit {p.returncode}\n{p.stderr[-2000:]}" if p.returncode else ""
+        except subprocess.TimeoutExpired as e:
+            return (e.stdout.decode() if isinstance(e.stdout, bytes) else e.stdout or ""), f"timeout after {TIMEOUT} s"
+
+    stdout, err = invoke(prompt)
+    if s["followup"] and not err:
+        session = None
+        for l in stdout.splitlines():
+            try:
+                m = json.loads(l)
+            except ValueError:
+                continue
+            if m.get("type") == "result":
+                session = m.get("session_id")
+        if session:
+            out2, err = invoke(s["followup"], ["--resume", session])
+            stdout += "\n" + json.dumps({"type": "eval_followup", "prompt": s["followup"]}) + "\n" + out2
     shutil.rmtree(d, ignore_errors=True)
     loaded, final, model, cost = parse(stdout)
     with open(f"{out}/{name}.jsonl", "w") as f:
@@ -170,7 +195,9 @@ def run(job):
         sys.stderr.write(f"{name}: API error: {final}\n")
         return s, mode, loaded, model, cost
     with open(f"{out}/{name}.md", "w") as f:
-        f.write(f"# {name}\n\nprompt: {s['prompt']}\n\nloaded: {sorted(loaded)}\n\n---\n\n{final or err}\n")
+        f.write(f"# {name}\n\nprompt: {s['prompt']}\n\n"
+                + (f"follow-up: {s['followup']}\n\n" if s["followup"] else "")
+                + f"loaded: {sorted(loaded)}\n\n---\n\n{final or err}\n")
     if err:
         sys.stderr.write(f"{name}: {err}\n")
     bad = unsupported_citations(loaded, final, mode)
