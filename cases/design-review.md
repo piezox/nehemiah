@@ -15,6 +15,8 @@ These are questions for the humans who decide. Most of the encyclical binds whoe
 2. An unanswered question in A, C, or G blocks the decision until a named person owns it.
 3. Keep the answers with the design record. They are the accountability trail [§105].
 
+This file steers a decision while it is being made. For a scored assessment of a finished product, company, or policy, use the `magnifica-humanitas-review` skill at github.com/mrjf/encyclical (30 criteria, 0–100). Do not turn this file into a second rubric.
+
 ## A. Dignity
 
 - Who is classified, scored, or selected? What does the system measure, ignore, and optimize? [§104]
