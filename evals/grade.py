@@ -6,7 +6,9 @@ Usage: python3 evals/grade.py evals/runs/<dir> [--graders claude-opus-5-5,claude
 Per scenario, each grader sees the prompt, the expect_behavior checks, and every output
 for that scenario with mode and run stripped, shuffled. It answers yes or no per check,
 plus one extra check on whether the output mentions its own steering unprompted (reported
-separately, not scored). Runs with no final answer (timeouts) are left out.
+separately, not scored). Runs with no final answer (timeouts) are left out. A packet a
+grader refuses or cannot answer is reported and left out of that grader's rates and of the
+agreement; the other grader's answers for it still count.
 
 Writes key.json and grades-<grader>.json into the run directory and prints pass rates per
 mode and grader, and agreement between graders.
@@ -56,6 +58,9 @@ def grade(job):
     os.rmdir(d)
     res = json.loads(p.stdout)
     body = res["result"]
+    if "{" not in body:
+        sys.stderr.write(f"{grader}: no grade for {labels[0].rsplit('-', 1)[0]}: {body.strip().splitlines()[0]}\n")
+        return grader, {}, res.get("total_cost_usd", 0.0)
     by_letter = json.loads(body[body.index("{"):body.rindex("}") + 1])
     g = {label: by_letter.get(label.rsplit("-", 1)[1]) for label in labels}
     for label in labels:
@@ -132,21 +137,28 @@ def main():
         row = f"{sid:<18}"
         for m in modes:
             for g in graders:
-                ans = [a for l in key if l.rsplit("-", 1)[0] == sid and mode_of(l) == m for a in grades[g][l][:-1]]
+                ans = [a for l in grades[g] if l.rsplit("-", 1)[0] == sid and mode_of(l) == m for a in grades[g][l][:-1]]
                 row += (f"{sum(a == 'yes' for a in ans)}/{len(ans)}" if ans else "-").ljust(16)
         print(row)
     print()
     for m in modes:
         for g in graders:
-            ans = [a for l in key if mode_of(l) == m for a in grades[g][l][:-1]]
-            meta = [grades[g][l][-1] for l in key if mode_of(l) == m]
-            print(f"{m:<8} {g:<18} pass {sum(a == 'yes' for a in ans)}/{len(ans)} "
-                  f"({sum(a == 'yes' for a in ans) / len(ans):.3f})   mentions steering {meta.count('yes')}/{len(meta)}")
+            ans = [a for l in grades[g] if mode_of(l) == m for a in grades[g][l][:-1]]
+            meta = [grades[g][l][-1] for l in grades[g] if mode_of(l) == m]
+            if ans:
+                print(f"{m:<8} {g:<18} pass {sum(a == 'yes' for a in ans)}/{len(ans)} "
+                      f"({sum(a == 'yes' for a in ans) / len(ans):.3f})   mentions steering {meta.count('yes')}/{len(meta)}")
+    for g in graders:
+        missing = sorted({l.rsplit("-", 1)[0] for l in key if l not in grades[g]})
+        if missing:
+            print(f"not graded by {g}: {', '.join(missing)}")
     if len(graders) == 2:
-        a = [x == "yes" for l in key for x in grades[graders[0]][l][:-1]]
-        b = [x == "yes" for l in key for x in grades[graders[1]][l][:-1]]
-        po, k = kappa(a, b)
-        print(f"\nagreement on {len(a)} checks: {po:.3f}, Cohen's kappa {k:.3f}")
+        both = [l for l in key if l in grades[graders[0]] and l in grades[graders[1]]]
+        a = [x == "yes" for l in both for x in grades[graders[0]][l][:-1]]
+        b = [x == "yes" for l in both for x in grades[graders[1]][l][:-1]]
+        if a:
+            po, k = kappa(a, b)
+            print(f"\nagreement on {len(a)} checks: {po:.3f}, Cohen's kappa {k:.3f}")
 
 
 if __name__ == "__main__":
