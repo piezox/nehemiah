@@ -38,6 +38,7 @@ cases/            loaded when the situation is present
   companionship.md
   design-review.md
 evals/            scenarios for trigger recall and behavior change
+docs/             blog post draft, its outline, and research notes
 scripts/
   install.sh      copies core and cases into a project, points its AGENTS.md at them
   build-full.sh   concatenates everything into dist/full.md
@@ -54,9 +55,9 @@ git clone https://github.com/piezox/nehemiah /tmp/nehemiah
 
 This copies `core/` and `cases/` into `<project>/nehemiah/`, adds a one-line pointer to the project's AGENTS.md, records the commit in `nehemiah/VERSION`, and prints your disclosure line. To pin a version, check it out before installing. To update, delete `nehemiah/` and run it again.
 
-Measured on one model in Claude Code, 3 runs per scenario: the agent followed the pointer and read the core 33/33 times, and behaved the same as with the core pasted inline (#4, #13).
+Measured on one model in Claude Code, 3 runs per scenario: the agent followed the pointer and read the core 90/90 times, and behaved the same as with the core pasted inline (#4, #13).
 
-- **Keep the files local.** Pointing AGENTS.md at a URL instead (raw GitHub, a hosted SKILL.md) dropped recall from 32/33 to 24/33, and the agent received a summary of the rules rather than the rules: median 0% of lines arrived verbatim (#13). A URL is fine when a person asks for a review on purpose ("use <url> to review this design"). It does not work as steering.
+- **Keep the files local.** With AGENTS.md pointing at a URL instead (raw GitHub, a hosted SKILL.md), the agent fetched the core in 33/33 runs but received a summary of the rules rather than the rules: median 0% of lines arrived verbatim. The right case files loaded in 22/27 runs against 27/27 with the local pointer, and the pass rate was 0.81 against 0.92 (#13). A URL is fine when a person asks for a review on purpose ("use <url> to review this design"). As steering it is weaker than local files.
 - **Tools with on-demand skills or rules** (Claude Code skills, Cursor rules, Copilot instructions, Kiro steering): put `core/core.md` wherever always-on instructions live, and register each file in `cases/` as an on-demand skill or rule using its `description` as the trigger. Not yet measured.
 - **No on-demand loading at all**: run `scripts/build-full.sh` and use `dist/full.md`. It removes the risk of a missed trigger but puts about 130 rules in context, and adherence falls as rule count grows. Not yet measured.
 
@@ -66,10 +67,16 @@ A steered agent does not tell people about its steering unless it stops under a 
 
 ## Known limits
 
-- Activation depends on the agent noticing the situation; ethical relevance is not a file glob. With the core loaded, the right case files loaded in 29–32 of 33 scenario runs. A missed trigger fails silently. That is why the hard stops live in the core.
-- Measured on one model (Fable 5.1), steering raised the pass rate on file-specific scenarios from 0.53 to 0.82. Three case files add what the core cannot: `design-review`, `defense-dual-use`, `irreversible-actions`. The other six showed no measurable effect beyond the core on this model, on one scenario each; they stay until a second model has been run (#6, #10).
+- Activation depends on the agent noticing the situation; ethical relevance is not a file glob. With the core loaded, the right case files loaded in 66–68 of 69 runs where one was expected. In ordinary tasks that share words with the rules, a case file loaded when none was needed in 13–14 of 21 runs. A missed trigger fails silently. That is why the hard stops live in the core.
+- Measured on one model (Fable 5.1), steering raised the pass rate on file-specific scenarios from 0.39 to 0.87. The core carries most of it: with its case file removed, a scenario still passed at 0.77 on average. The largest losses were `data-and-attention`, `irreversible-actions` and `design-review`, about 0.2 each; `companionship` scored lower with its file than without. Three runs on one scenario per file cannot rank them, so all nine stay until a second model has been run (#6, #10).
 - Roughly a third of the rules are checkable in a transcript today. The rest depend on the agent's judgment ("flag designs that..."). `evals/` exists to find out which rules actually change behavior.
 - Steering shapes behavior within what the underlying model already permits. It does not override it.
+
+The numbers in this README come from runs with this provenance line (see `evals/README.md`, "Reporting a result"). Sonnet 5 refused to grade the dual-use scenario, so that one rests on one grader.
+
+```text
+nehemiah 31079c1 · scenarios 433ee3ca0ce8 · harness 210fd8af8310 · claude-code 2.1.289 · model claude-fable-5-1 · graders claude-opus-5-5, claude-sonnet-5 (grade.py 8f0e98504ee0, checks 433ee3ca0ce8)
+```
 
 ## License
 
